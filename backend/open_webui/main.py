@@ -1023,6 +1023,7 @@ async def get_base_models(request: Request, user=Depends(get_admin_user)):
     return {"data": models}
 
 
+
 @app.post("/api/chat/completions")
 async def chat_completion(
     request: Request,
@@ -1056,7 +1057,33 @@ async def chat_completion(
 
             request.state.direct = True
             request.state.model = model
-
+            
+        def hack_form_data(form_data):
+            files = form_data.get("files", None)
+            new_files = []
+            if files:
+                for file in files:
+                    if file['file']['filename'].endswith('.mp4'):
+                        messages = form_data.get("messages", None)
+                        if isinstance(messages[-1]['content'], str):
+                            new_content = [
+                                {'type': 'text', 'text': messages[-1]['content']},
+                            ]
+                        elif isinstance(messages[-1]['content'], list):
+                            new_content = messages[-1]['content']
+                        content = file['file']["data"]["content"]
+                        json_content = json.loads(content)
+                        new_content.extend(json_content)
+                        messages[-1]['content'] = new_content
+                    else:
+                        new_files.append(file)
+            form_data['files'] = new_files
+            return form_data
+        
+        # form_data = hack_form_data(form_data)
+        # write form_data to /root/workspace/open-webui_log.jsonl
+        # with open('/root/workspace/open-webui_log.jsonl', 'a') as f:
+        #    f.write(json.dumps(form_data) + '\n')
         metadata = {
             "user_id": user.id,
             "chat_id": form_data.pop("chat_id", None),

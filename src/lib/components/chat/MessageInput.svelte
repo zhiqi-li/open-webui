@@ -215,9 +215,304 @@
 		}
 	};
 
+
+	const extract256FramesFromVideo = async (file) => {
+	  const video = document.createElement('video');
+	  video.src = URL.createObjectURL(file);
+	  video.crossOrigin = 'anonymous';
+
+	  const frames = [];
+	  let videoBase64_for_frontend = null;
+
+	  // ---- helper: 等待video加载 ----
+	  await new Promise((resolve, reject) => {
+	    video.onloadedmetadata = resolve;
+	    video.onerror = () => reject(new Error("Failed to load video metadata"));
+	  });
+
+	  // 用于压缩录制时的最大时长，原代码限制为600秒
+	  const recordingDuration = Math.min(video.duration, 600);
+
+	  // 根据2fps采样，计算采样帧数和时间间隔
+	  const fps = 2;
+	  let totalFrames, frameInterval;
+	  if (video.duration * fps <= 256) {
+	    // 视频较短时，每0.5秒采样一帧
+	    totalFrames = Math.max(Math.floor(video.duration * fps), 1);
+	    frameInterval = 1 / fps;
+	  } else {
+	    // 视频较长时，均匀采样256帧
+	    totalFrames = 256;
+	    frameInterval = video.duration / totalFrames;
+	  }
+
+	  console.log(`Loaded video: ${video.videoWidth}x${video.videoHeight}, duration: ${video.duration}s, extracting ${totalFrames} frames`);
+
+	  // ---- helper: 压缩视频并转为base64 ----
+	  const recordCompressedVideoToBase64 = () => {
+	    return new Promise((resolve, reject) => {
+	      const stream = video.captureStream(2); // 以2fps捕获
+	      const recorder = new MediaRecorder(stream, {
+	        mimeType: 'video/webm;codecs=vp8',
+	        videoBitsPerSecond: 500_000,
+	      });
+
+	      const chunks = [];
+
+	      recorder.ondataavailable = (e) => {
+	        if (e.data.size > 0) chunks.push(e.data);
+	      };
+
+	      recorder.onstop = () => {
+	        if (chunks.length === 0) {
+	          console.warn('No chunks recorded, fallback to original file');
+	          const reader = new FileReader();
+	          reader.onloadend = () => resolve(reader.result);
+	          reader.readAsDataURL(file);
+	          return;
+	        }
+
+	        const blob = new Blob(chunks, { type: 'video/webm' });
+	        if (blob.size === 0) {
+	          return reject(new Error("Compressed blob size is 0"));
+	        }
+
+	        const reader = new FileReader();
+	        reader.onloadend = () => resolve(reader.result);
+	        reader.onerror = reject;
+	        reader.readAsDataURL(blob);
+	      };
+
+	      recorder.onerror = reject;
+	      recorder.start(100);
+	      video.play();
+
+	      setTimeout(() => {
+	        if (recorder.state === 'recording') {
+	          recorder.stop();
+	        }
+	        video.pause();
+	      }, recordingDuration * 1000);
+	    });
+	  };
+
+	  // 同时启动压缩过程
+	  const compressedVideoPromise = recordCompressedVideoToBase64();
+
+	  // ---- helper: 等待一次seek完成并提取图像 ----
+	  const extractFrameAt = async (time) => {
+	    return new Promise((resolve, reject) => {
+	      video.onseeked = () => {
+	        const canvas = document.createElement('canvas');
+	        canvas.width = video.videoWidth;
+	        canvas.height = video.videoHeight;
+	        const ctx = canvas.getContext('2d');
+	        if (ctx) {
+	          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+	          canvas.toBlob((blob) => {
+	            if (!blob) {
+	              return reject(new Error("Failed to create blob from canvas"));
+	            }
+	            const imageFile = new File(
+	              [blob],
+	              `${file.name.split('.')[0]}_frame_${frames.length}_total_${totalFrames}_special_tag.jpg`,
+	              { type: 'image/jpeg' }
+	            );
+	            frames.push(imageFile);
+	            resolve();
+	          }, 'image/jpeg', 0.8);
+	        } else {
+	          reject(new Error("Canvas context not available"));
+	        }
+	      };
+	      video.currentTime = time;
+	    });
+	  };
+
+	  // 顺序提取帧：如果视频较长，则均匀采256帧；否则按照2fps采样
+	  for (let i = 0; i < totalFrames; i++) {
+	    const time = i * frameInterval;
+	    try {
+	      await extractFrameAt(time);
+	      console.log(`Frame ${i + 1}/${totalFrames} extracted`);
+	    } catch (err) {
+	      console.warn(`Failed to extract frame ${i}`, err);
+	    }
+	  }
+
+	  // 等待压缩base64完成
+	  try {
+	    videoBase64_for_frontend = await compressedVideoPromise;
+	    console.log('Video base64 generated:', videoBase64_for_frontend.length);
+	  } catch (err) {
+	    console.error('Error generating base64:', err);
+	    videoBase64_for_frontend = 'data:video/webm;base64,error';
+	  }
+
+	  URL.revokeObjectURL(video.src);
+	  return { videoBase64_for_frontend, frames };
+	};
+
+
+	const extractFramesFromVideo = async (file) => {
+	  const totalFrames = 16;
+	  const video = document.createElement('video');
+	  video.src = URL.createObjectURL(file);
+	  video.crossOrigin = 'anonymous';
+
+	  const frames = [];
+	  let videoBase64_for_frontend = null;
+
+	  // ---- helper: 等待video加载 ----
+	  await new Promise((resolve, reject) => {
+	    video.onloadedmetadata = resolve;
+	    video.onerror = () => reject(new Error("Failed to load video metadata"));
+	  });
+
+	  const duration = Math.min(video.duration, 600);
+	  const frameInterval = video.duration / totalFrames;
+
+	  console.log(`Loaded video: ${video.videoWidth}x${video.videoHeight}, duration: ${video.duration}s`);
+
+	  // ---- helper: 压缩视频并转为base64 ----
+	  const recordCompressedVideoToBase64 = () => {
+	    return new Promise((resolve, reject) => {
+	      const stream = video.captureStream(2); // try 2fps
+	      const recorder = new MediaRecorder(stream, {
+	        mimeType: 'video/webm;codecs=vp8',
+	        videoBitsPerSecond: 500_000,
+	      });
+
+	      const chunks = [];
+
+	      recorder.ondataavailable = (e) => {
+	        if (e.data.size > 0) chunks.push(e.data);
+	      };
+
+	      recorder.onstop = () => {
+	        if (chunks.length === 0) {
+	          console.warn('No chunks recorded, fallback to original file');
+	          const reader = new FileReader();
+	          reader.onloadend = () => resolve(reader.result);
+	          reader.readAsDataURL(file);
+	          return;
+	        }
+
+	        const blob = new Blob(chunks, { type: 'video/webm' });
+	        if (blob.size === 0) {
+	          return reject(new Error("Compressed blob size is 0"));
+	        }
+
+	        const reader = new FileReader();
+	        reader.onloadend = () => resolve(reader.result);
+	        reader.onerror = reject;
+	        reader.readAsDataURL(blob);
+	      };
+
+	      recorder.onerror = reject;
+	      recorder.start(100);
+	      video.play();
+
+	      setTimeout(() => {
+	        if (recorder.state === 'recording') {
+	          recorder.stop();
+	        }
+	        video.pause();
+	      }, duration * 1000);
+	    });
+	  };
+
+	  // 同时启动压缩过程
+	  const compressedVideoPromise = recordCompressedVideoToBase64();
+
+	  // ---- helper: 等待一次seek完成并提取图像 ----
+	  const extractFrameAt = async (time) => {
+	    return new Promise((resolve, reject) => {
+	      video.onseeked = () => {
+	        const canvas = document.createElement('canvas');
+	        canvas.width = video.videoWidth;
+	        canvas.height = video.videoHeight;
+	        const ctx = canvas.getContext('2d');
+	        if (ctx) {
+	          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+	          canvas.toBlob((blob) => {
+	            const imageFile = new File(
+	              [blob],
+	              `${file.name.split('.')[0]}_frame_${frames.length}_total_${totalFrames}_special_tag.jpg`,
+	              { type: 'image/jpeg' }
+	            );
+	            frames.push(imageFile);
+	            resolve();
+	          }, 'image/jpeg', 0.8);
+	        } else {
+	          reject(new Error("Canvas context not available"));
+	        }
+	      };
+	      video.currentTime = time;
+	    });
+	  };
+
+	  // 顺序提取帧
+	  for (let i = 0; i < totalFrames; i++) {
+	    const time = i * frameInterval;
+	    try {
+	      await extractFrameAt(time);
+	      console.log(`Frame ${i + 1}/${totalFrames} extracted`);
+	    } catch (err) {
+	      console.warn(`Failed to extract frame ${i}`, err);
+	    }
+	  }
+
+	  // 等待压缩base64完成
+	  try {
+	    videoBase64_for_frontend = await compressedVideoPromise;
+	    console.log('Video base64 generated:', videoBase64_for_frontend.length);
+	  } catch (err) {
+	    console.error('Error generating base64:', err);
+	    videoBase64_for_frontend = 'data:video/webm;base64,error';
+	  }
+
+	  URL.revokeObjectURL(video.src);
+	  return { videoBase64_for_frontend, frames };
+	};
+	
+	const generateVideoBase64FromFrames = async (frames) => {
+	  // 使用 Promise.all 同时处理所有 frame 的转换
+	  const frameBase64Array = await Promise.all(
+	    frames.map(frame => {
+	      return new Promise((resolve, reject) => {
+	        const reader = new FileReader();
+	        reader.onload = () => {
+	          const result = reader.result;
+	          if (typeof result === 'string') {
+	            // 文件读取的 data URL 格式通常为 "data:image/jpeg;base64,xxxx"
+	            // 这里提取逗号后面的 base64 数据部分
+	            const base64Data = result.split(',')[1];
+	            resolve(base64Data);
+	          } else {
+	            reject(new Error('Unexpected result type'));
+	          }
+	        };
+	        reader.onerror = reject;
+	        reader.readAsDataURL(frame);
+	      });
+	    })
+	  );
+
+  	// 拼接所有 frame 的 base64 数据，逗号分隔，并添加前缀
+  	const videoBase64 = `data:video;base64,${frameBase64Array.join(',')}`;
+  	return { type: 'video', url: videoBase64 };
+	};
+
+
 	const inputFilesHandler = async (inputFiles) => {
 		console.log('Input files handler called with:', inputFiles);
-		inputFiles.forEach((file) => {
+
+		// 创建一个新的数组来存储处理后的文件
+		const processedFiles = [];
+
+		// 处理所有文件
+		for (const file of inputFiles) {
 			console.log('Processing file:', {
 				name: file.name,
 				type: file.type,
@@ -238,15 +533,62 @@
 						maxSize: $config?.file?.max_size
 					})
 				);
-				return;
+				continue;
 			}
 
-			if (
-				['image/gif', 'image/webp', 'image/jpeg', 'image/png', 'image/avif'].includes(file['type'])
-			) {
+			// 处理视频文件
+			if (file.type.startsWith('video/')) {
 				if (visionCapableModels.length === 0) {
 					toast.error($i18n.t('Selected model(s) do not support image inputs'));
-					return;
+					continue;
+				}
+				// const compressedFile = await compressVideoToResolution(file, '360p');
+				// processedFiles.push(file); 源文件
+				try {
+					// 从视频中提取帧，返回的是图片文件数组
+					// const { videoBase64_for_frontend, frames } = await extractFramesFromVideo(file);
+					const { videoBase64_for_frontend, frames } = await extract256FramesFromVideo(file);
+					console.log('videoBase64_for_frontend and frames:', { videoBase64_for_frontend, frames});
+					
+					// 添加压缩后的视频到files
+					files = [...files, {
+						type: 'video_to_show_in_frontend',
+						url: videoBase64_for_frontend,
+						name: 'xjbxd_special_tag.mp4'
+					}];
+					
+					// vllm api				
+					const video_base64_for_backend = await generateVideoBase64FromFrames(frames);
+					console.log('video_base64_for_backend:', video_base64_for_backend);
+					files = [...files, video_base64_for_backend];
+					
+					// openai api
+					// frames.forEach(imageFile => {
+					//	processedFiles.push(imageFile);
+					// });
+
+				} catch (error) {
+					console.error('Error processing video:', error);
+					toast.error($i18n.t('Error processing video file'));
+					continue;
+				}
+			}
+			// 处理图片文件
+			else if (['image/gif', 'image/webp', 'image/jpeg', 'image/png', 'image/avif'].includes(file['type'])) {
+				processedFiles.push(file);
+			} else {
+				// 其他类型的文件
+				
+				processedFiles.push(file);
+			}
+		}
+
+		// 处理所有收集到的文件
+		for (const file of processedFiles) {
+			if (['image/gif', 'image/webp', 'image/jpeg', 'image/png', 'image/avif'].includes(file.type)) {
+				if (visionCapableModels.length === 0) {
+					toast.error($i18n.t('Selected model(s) do not support image inputs'));
+					continue;
 				}
 				let reader = new FileReader();
 				reader.onload = async (event) => {
@@ -265,15 +607,17 @@
 						...files,
 						{
 							type: 'image',
-							url: `${imageUrl}`
+							url: `${imageUrl}`,
+							name: file.name
 						}
 					];
 				};
 				reader.readAsDataURL(file);
 			} else {
+				console.log('uploadFileHandler', file);
 				uploadFileHandler(file);
 			}
-		});
+		}
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
@@ -598,30 +942,32 @@
 													</div>
 												</div>
 											{:else}
-												<FileItem
-													item={file}
-													name={file.name}
-													type={file.type}
-													size={file?.size}
-													loading={file.status === 'uploading'}
-													dismissible={true}
-													edit={true}
-													on:dismiss={async () => {
-														if (file.type !== 'collection' && !file?.collection) {
-															if (file.id) {
-																// This will handle both file deletion and Chroma cleanup
-																await deleteFileById(localStorage.token, file.id);
+												{#if !file.name || !file.name.endsWith('xjbxd_special_tag.mp4')}
+													<FileItem
+														item={file}
+														name={file.name}
+														type={file.type}
+														size={file?.size}
+														loading={file.status === 'uploading'}
+														dismissible={true}
+														edit={true}
+														on:dismiss={async () => {
+															if (file.type !== 'collection' && !file?.collection) {
+																if (file.id) {
+																	// This will handle both file deletion and Chroma cleanup
+																	await deleteFileById(localStorage.token, file.id);
+																}
 															}
-														}
 
 														// Remove from UI state
 														files.splice(fileIdx, 1);
 														files = files;
-													}}
-													on:click={() => {
+														}}
+														on:click={() => {
 														console.log(file);
-													}}
-												/>
+														}}
+													/>
+												{/if}
 											{/if}
 										{/each}
 									</div>

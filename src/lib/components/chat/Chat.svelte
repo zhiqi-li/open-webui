@@ -1518,33 +1518,48 @@
 			}))
 		].filter((message) => message);
 
-		messages = messages
-			.map((message, idx, arr) => ({
-				role: message.role,
-				...((message.files?.filter((file) => file.type === 'image').length > 0 ?? false) &&
-				message.role === 'user'
-					? {
-							content: [
-								{
-									type: 'text',
-									text: message?.merged?.content ?? message.content
-								},
-								...message.files
-									.filter((file) => file.type === 'image')
-									.map((file) => ({
-										type: 'image_url',
-										image_url: {
-											url: file.url
-										}
-									}))
-							]
-						}
-					: {
-							content: message?.merged?.content ?? message.content
-						})
-			}))
+		messages = messages.map((message, idx, arr) => {
+				// 检查是否存在 image 或 video 类型的文件
+				const hasMedia =
+					(message.files?.filter(
+						(file) => file.type === 'image' || file.type === 'video'
+					).length ?? 0) > 0;
+				return {
+					role: message.role,
+					...(hasMedia && message.role === 'user'
+						? {
+								content: [
+									{
+										type: 'text',
+										text: message?.merged?.content ?? message.content
+									},
+									// 处理 image 文件
+									...message.files
+										.filter((file) => file.type === 'image')
+										.map((file) => ({
+											type: 'image_url',
+											image_url: {
+												url: file.url
+											}
+										})),
+									// 处理 video 文件
+									...message.files
+										.filter((file) => file.type === 'video')
+										.map((file) => ({
+											type: 'video_url',
+											video_url: {
+												url: file.url
+											}
+										}))
+								]
+						  }
+						: {
+								content: message?.merged?.content ?? message.content
+						  })
+				};
+			})
 			.filter((message) => message?.role === 'user' || message?.content?.trim());
-
+		// console.log('messages', messages);
 		const res = await generateOpenAIChatCompletion(
 			localStorage.token,
 			{

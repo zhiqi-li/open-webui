@@ -21,6 +21,7 @@ from langchain_community.document_loaders import (
 )
 from langchain_core.documents import Document
 from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
+from open_webui.retrieval.loaders.video import VideoLoader
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
@@ -183,7 +184,6 @@ class Loader:
 
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
         file_ext = filename.split(".")[-1].lower()
-
         if self.engine == "tika" and self.kwargs.get("TIKA_SERVER_URL"):
             if file_ext in known_source_ext or (
                 file_content_type and file_content_type.find("text/") >= 0
@@ -261,6 +261,8 @@ class Loader:
                 file_content_type and file_content_type.find("text/") >= 0
             ):
                 loader = TextLoader(file_path, autodetect_encoding=True)
+            elif file_ext == "mp4":
+                loader = VideoLoader(file_path, num_frames=8)
             else:
                 loader = TextLoader(file_path, autodetect_encoding=True)
 

@@ -78,8 +78,136 @@
 		}
 	};
 
+	const extractFramesFromVideo = async (file) => {
+	  const totalFrames = 16;
+	  const video = document.createElement('video');
+	  video.src = URL.createObjectURL(file);
+	  video.crossOrigin = 'anonymous';
+
+	  const frames = [];
+	  let videoBase64 = null;
+
+	  // ---- helper: 等待video加载 ----
+	  await new Promise((resolve, reject) => {
+	    video.onloadedmetadata = resolve;
+	    video.onerror = () => reject(new Error("Failed to load video metadata"));
+	  });
+
+	  const duration = Math.min(video.duration, 600);
+	  const frameInterval = video.duration / totalFrames;
+
+	  console.log(`Loaded video: ${video.videoWidth}x${video.videoHeight}, duration: ${video.duration}s`);
+
+	  // ---- helper: 压缩视频并转为base64 ----
+	  const recordCompressedVideoToBase64 = () => {
+	    return new Promise((resolve, reject) => {
+	      const stream = video.captureStream(2); // try 2fps
+	      const recorder = new MediaRecorder(stream, {
+	        mimeType: 'video/webm;codecs=vp8',
+	        videoBitsPerSecond: 500_000,
+	      });
+
+	      const chunks = [];
+
+	      recorder.ondataavailable = (e) => {
+	        if (e.data.size > 0) chunks.push(e.data);
+	      };
+
+	      recorder.onstop = () => {
+	        if (chunks.length === 0) {
+	          console.warn('No chunks recorded, fallback to original file');
+	          const reader = new FileReader();
+	          reader.onloadend = () => resolve(reader.result);
+	          reader.readAsDataURL(file);
+	          return;
+	        }
+
+	        const blob = new Blob(chunks, { type: 'video/webm' });
+	        if (blob.size === 0) {
+	          return reject(new Error("Compressed blob size is 0"));
+	        }
+
+	        const reader = new FileReader();
+	        reader.onloadend = () => resolve(reader.result);
+	        reader.onerror = reject;
+	        reader.readAsDataURL(blob);
+	      };
+
+	      recorder.onerror = reject;
+	      recorder.start(100);
+	      video.play();
+
+	      setTimeout(() => {
+	        if (recorder.state === 'recording') {
+	          recorder.stop();
+	        }
+	        video.pause();
+	      }, duration * 1000);
+	    });
+	  };
+
+	  // 同时启动压缩过程
+	  const compressedVideoPromise = recordCompressedVideoToBase64();
+
+	  // ---- helper: 等待一次seek完成并提取图像 ----
+	  const extractFrameAt = async (time) => {
+	    return new Promise((resolve, reject) => {
+	      video.onseeked = () => {
+	        const canvas = document.createElement('canvas');
+	        canvas.width = video.videoWidth;
+	        canvas.height = video.videoHeight;
+	        const ctx = canvas.getContext('2d');
+	        if (ctx) {
+	          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+	          canvas.toBlob((blob) => {
+	            const imageFile = new File(
+	              [blob],
+	              `${file.name.split('.')[0]}_frame_${frames.length}_total_${totalFrames}_special_tag.jpg`,
+	              { type: 'image/jpeg' }
+	            );
+	            frames.push(imageFile);
+	            resolve();
+	          }, 'image/jpeg', 0.8);
+	        } else {
+	          reject(new Error("Canvas context not available"));
+	        }
+	      };
+	      video.currentTime = time;
+	    });
+	  };
+
+	  // 顺序提取帧
+	  for (let i = 0; i < totalFrames; i++) {
+	    const time = i * frameInterval;
+	    try {
+	      await extractFrameAt(time);
+	      console.log(`Frame ${i + 1}/${totalFrames} extracted`);
+	    } catch (err) {
+	      console.warn(`Failed to extract frame ${i}`, err);
+	    }
+	  }
+
+	  // 等待压缩base64完成
+	  try {
+	    videoBase64 = await compressedVideoPromise;
+	    console.log('Video base64 generated:', videoBase64.length);
+	  } catch (err) {
+	    console.error('Error generating base64:', err);
+	    videoBase64 = 'data:video/webm;base64,error';
+	  }
+
+	  URL.revokeObjectURL(video.src);
+	  return { videoBase64, frames };
+	};
+
 	const inputFilesHandler = async (inputFiles) => {
-		inputFiles.forEach((file) => {
+	
+
+		// 创建一个新的数组来存储处理后的文件
+		const processedFiles = [];
+
+		// 处理所有文件
+		for (const file of inputFiles) {
 			console.log('Processing file:', {
 				name: file.name,
 				type: file.type,
@@ -100,9 +228,79 @@
 						maxSize: $config?.file?.max_size
 					})
 				);
-				return;
+				continue;
 			}
 
+			// 处理视频文件
+			if (file.type.startsWith('video/')) {
+				if (visionCapableModels.length === 0) {
+					toast.error($i18n.t('Selected model(s) do not support image inputs'));
+					continue;
+				}
+				processedFiles.push(file);
+				try {
+					// 从视频中提取帧，返回的是图片文件数组
+					const { videoBase64, frames } = await extractFramesFromVideo(file);
+					console.log('videoBase64 and frames:', { videoBase64, frames });
+					
+					// 添加压缩后的视频到files
+					files = [...files, {
+						type: 'video',
+						url: videoBase64,
+						name: 'xjbxd_special_tag.mp4'
+					}];
+					
+					// 将提取的图片文件添加到处理后的文件数组中
+					frames.forEach(imageFile => {
+						processedFiles.push(imageFile);
+					});
+				} catch (error) {
+					console.error('Error processing video:', error);
+					toast.error($i18n.t('Error processing video file'));
+					continue;
+				}
+			}
+			// 处理图片文件
+			else if (['image/gif', 'image/webp', 'image/jpeg', 'image/png', 'image/avif'].includes(file['type'])) {
+				processedFiles.push(file);
+			} else {
+				// 其他类型的文件
+				processedFiles.push(file);
+			}
+		}
+
+		for (const file of processedFiles) {
+			console.log('Processing file:', {
+				name: file.name,
+				type: file.type,
+				size: file.size,
+				extension: file.name.split('.').at(-1)
+			});
+
+			if (
+				($config?.file?.max_size ?? null) !== null &&
+				file.size > ($config?.file?.max_size ?? 0) * 1024 * 1024
+			) {
+				console.log('File exceeds max size limit:', {
+					fileSize: file.size,
+					maxSize: ($config?.file?.max_size ?? 0) * 1024 * 1024
+				});
+				toast.error(
+					$i18n.t(`File size should not exceed {{maxSize}} MB.`, {
+						maxSize: $config?.file?.max_size
+					})
+				);
+				continue;
+			}
+
+			// Handle video files
+			// print log
+			console.log('Processing upload file:', {
+				name: file.name,
+				type: file.type,
+				size: file.size,
+				extension: file.name.split('.').at(-1)
+			});
 			if (
 				['image/gif', 'image/webp', 'image/jpeg', 'image/png', 'image/avif'].includes(file['type'])
 			) {
@@ -124,16 +322,18 @@
 						...files,
 						{
 							type: 'image',
-							url: `${imageUrl}`
+							url: `${imageUrl}`,
+							name: file.name
 						}
 					];
 				};
 
 				reader.readAsDataURL(file);
 			} else {
+				console.log('uploadFileHandler', file);
 				uploadFileHandler(file);
 			}
-		});
+		}
 	};
 
 	const uploadFileHandler = async (file) => {
