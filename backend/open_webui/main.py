@@ -1080,8 +1080,40 @@ async def chat_completion(
             form_data['files'] = new_files
             return form_data
         
+        def check_images_quantity(form_data):
+            model = form_data.get("model", None)
+            if model != 'Eagle-2.5-8B-Image': return form_data
+            # only check Eagle-2.5-8B-Image
+            messages = form_data.get("messages", None)
+            for message in messages:
+                if message['role'] == 'user':
+                    content = message['content']
+                    if isinstance(content, str):
+                        continue
+                    elif isinstance(content, list):
+                        new_content = []
+                        image_count = 0
+                        image_data = []
+                        for item in content:
+                            if item['type'] == 'image_url':
+                                image_count += 1
+                                image_data.append(item)
+                            else:
+                                new_content.append(item)
+                        if image_count <= 16: continue
+                        else:
+                            image_data = image_data[::len(image_data)//16]
+                            new_content.extend(image_data)
+                            message['content'] = new_content
+            form_data['messages'] = messages
+            return form_data
+        
+        
         # form_data = hack_form_data(form_data)
         # write form_data to /root/workspace/open-webui_log.jsonl
+        # with open('/root/workspace/open-webui_log.jsonl', 'a') as f:
+        #    f.write(json.dumps(form_data) + '\n')
+        form_data = check_images_quantity(form_data)
         # with open('/root/workspace/open-webui_log.jsonl', 'a') as f:
         #    f.write(json.dumps(form_data) + '\n')
         metadata = {

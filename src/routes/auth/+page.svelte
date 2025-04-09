@@ -296,6 +296,9 @@
 											name="current-password"
 											required
 										/>
+										<div class="text-xs text-gray-500 mt-1">
+											{$i18n.t('Please do not use your commonly used passwords for security reasons')}
+										</div>
 									</div>
 								</div>
 							{/if}

@@ -142,33 +142,33 @@
 			{#if message.files}
 				<div class="mt-2.5 mb-1 w-full flex flex-col justify-end overflow-x-auto gap-1 flex-wrap">
 					{#each message.files as file}
-						<div class={($settings?.chatBubble ?? true) ? 'self-end' : ''}>
-							{#if file.type === 'image'} 
-								{#if !file.name || !file.name.endsWith('_special_tag.jpg')}
+						{#if !file.name || !file.name.endsWith('_special_tag.jpg')}
+							<div class={($settings?.chatBubble ?? true) ? 'self-end' : ''}>
+								{#if file.type === 'image'} 
 									<Image src={file.url} imageClassName=" max-h-96 rounded-lg" />
+								{:else if file.type === 'video_to_show_in_frontend'}
+									<video 
+										controls 
+										class="max-h-96 rounded-lg"
+										src={file.url}
+									>
+										Your browser does not support the video tag.
+									</video>
+									<div class="text-xs text-gray-500 mt-1 italic">
+										This low-quality video is for visualization purposes only.
+									</div>
+								{:else}
+									<FileItem
+										item={file}
+										url={file.url}
+										name={file.name}
+										type={file.type}
+										size={file?.size}
+										colorClassName="bg-white dark:bg-gray-850 "
+									/>
 								{/if}
-							{:else if file.type === 'video_to_show_in_frontend'}
-								<video 
-									controls 
-									class="max-h-96 rounded-lg"
-									src={file.url}
-								>
-									Your browser does not support the video tag.
-								</video>
-								<div class="text-xs text-gray-500 mt-1 italic">
-									This low-quality video is for visualization purposes only.
-								</div>
-							{:else if file.type !== 'video'}
-								<FileItem
-									item={file}
-									url={file.url}
-									name={file.name}
-									type={file.type}
-									size={file?.size}
-									colorClassName="bg-white dark:bg-gray-850 "
-								/>
-							{/if}
-						</div>
+							</div>
+						{/if}
 					{/each}
 				</div>
 			{/if}

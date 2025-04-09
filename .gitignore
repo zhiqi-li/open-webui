@@ -309,3 +309,5 @@ cypress/screenshots
 .vscode/settings.json
 *.zip
 backend/open_webui/frontend*
+*.out
+workdir_lasting_demo_short*

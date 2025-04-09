@@ -304,11 +304,14 @@
 	    return new Promise((resolve, reject) => {
 	      video.onseeked = () => {
 	        const canvas = document.createElement('canvas');
-	        canvas.width = video.videoWidth;
-	        canvas.height = video.videoHeight;
+	        // Set canvas size to 448x448
+	        canvas.width = 448;
+	        canvas.height = 448;
 	        const ctx = canvas.getContext('2d');
 	        if (ctx) {
-	          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+	          // Draw video frame scaled to 448x448
+	          ctx.drawImage(video, 0, 0, 448, 448);
+			  const quality = totalFrames >= 64 ? 0.6 : 0.7;
 	          canvas.toBlob((blob) => {
 	            if (!blob) {
 	              return reject(new Error("Failed to create blob from canvas"));
@@ -320,7 +323,7 @@
 	            );
 	            frames.push(imageFile);
 	            resolve();
-	          }, 'image/jpeg', 0.8);
+	          }, 'image/jpeg', quality);
 	        } else {
 	          reject(new Error("Canvas context not available"));
 	        }
@@ -430,12 +433,17 @@
 	    return new Promise((resolve, reject) => {
 	      video.onseeked = () => {
 	        const canvas = document.createElement('canvas');
-	        canvas.width = video.videoWidth;
-	        canvas.height = video.videoHeight;
+	        // Set canvas size to 448x448
+	        canvas.width = 448;
+	        canvas.height = 448;
 	        const ctx = canvas.getContext('2d');
 	        if (ctx) {
-	          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+	          // Draw video frame scaled to 448x448
+	          ctx.drawImage(video, 0, 0, 448, 448);
 	          canvas.toBlob((blob) => {
+	            if (!blob) {
+	              return reject(new Error("Failed to create blob from canvas"));
+	            }
 	            const imageFile = new File(
 	              [blob],
 	              `${file.name.split('.')[0]}_frame_${frames.length}_total_${totalFrames}_special_tag.jpg`,
@@ -558,14 +566,14 @@
 					}];
 					
 					// vllm api				
-					const video_base64_for_backend = await generateVideoBase64FromFrames(frames);
-					console.log('video_base64_for_backend:', video_base64_for_backend);
-					files = [...files, video_base64_for_backend];
+					// const video_base64_for_backend = await generateVideoBase64FromFrames(frames);
+					// console.log('video_base64_for_backend:', video_base64_for_backend);
+					// files = [...files, video_base64_for_backend];
 					
-					// openai api
-					// frames.forEach(imageFile => {
-					//	processedFiles.push(imageFile);
-					// });
+					//openai api
+					frames.forEach(imageFile => {
+						processedFiles.push(imageFile);
+					});
 
 				} catch (error) {
 					console.error('Error processing video:', error);
