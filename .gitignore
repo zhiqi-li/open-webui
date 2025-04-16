@@ -311,3 +311,4 @@ cypress/screenshots
 backend/open_webui/frontend*
 *.out
 workdir_lasting_demo_short*
+.vscode/
